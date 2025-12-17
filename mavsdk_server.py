@@ -13,7 +13,7 @@ async def main():
     print("En attente de connexion MAVSDK...")
     async for state in drone.core.connection_state():
         if state.is_connected:
-            print("✅ Drone connecté !")
+            print("Drone connecté !")
             break
 
     # UDP listener socket
@@ -27,35 +27,35 @@ async def main():
         try:
             data, _ = sock.recvfrom(1024)
             commande = data.decode().lower()
-            print(f"🎤 Commande reçue : {commande}")
+            print(f" Commande reçue : {commande}")
 
             if "décolle" in commande:
-                print("🚁 Décollage...")
+                print("Décollage...")
                 await drone.action.arm()
                 await drone.action.takeoff()
 
-            elif "atterris" in commande or "pose toi" in commande:
-                print("🏁 Atterrissage...")
+            elif "atterri" in commande or "pose toi" in commande:
+                print(" Atterrissage...")
                 await drone.action.land()
 
             elif "monte" in commande:
-                print("⬆️ Montée...")
+                print(" Montée...")
                 await drone.action.set_takeoff_altitude(5)
 
             elif "descend" in commande:
-                print("⬇️ Descente...")
-                # Tu peux mettre une commande descend ici
+                print(" Descente...")
+                 await drone.action.set_takeoff_altitude(5)
 
             elif "désarme" in commande or "coupe" in commande:
-                print("⛔ Désarmement...")
+                print(" Désarmement...")
                 await drone.action.disarm()
 
             elif "stop" in commande or "quitte" in commande:
-                print("🛑 Arrêt du contrôle MAVSDK")
+                print(" Arrêt du contrôle MAVSDK")
                 break
 
             else:
-                print("❓ Commande non reconnue")
+                print(" Commande non reconnue")
 
         except BlockingIOError:
             await asyncio.sleep(0.1)
