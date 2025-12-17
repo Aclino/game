@@ -44,7 +44,7 @@ async def main():
 
             elif "descend" in commande:
                 print(" Descente...")
-                 await drone.action.set_takeoff_altitude(5)
+                await drone.action.set_takeoff_altitude(0)
 
             elif "désarme" in commande or "coupe" in commande:
                 print(" Désarmement...")
