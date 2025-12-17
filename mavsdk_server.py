@@ -41,6 +41,9 @@ async def main():
             elif "monte" in commande:
                 print(" Montée...")
                 await drone.action.set_takeoff_altitude(5)
+            elif "avance" in commande:
+                await drone.offboard.set_velocity_ned(VelocityNedYaw(1.0, 0.0, 0.0, 0.0))
+                await asyncio.sleep(0.9)
 
             elif "descend" in commande:
                 print(" Descente...")
