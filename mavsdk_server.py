@@ -1,6 +1,7 @@
-import asyncio
+import asyncio 
 import socket
 from mavsdk import System
+from mavsdk.offboard import OffboardError, VelocityNedYaw
 
 UDP_IP = "0.0.0.0"
 UDP_PORT = 5005
@@ -27,7 +28,7 @@ async def main():
         try:
             data, _ = sock.recvfrom(1024)
             commande = data.decode().lower()
-            print(f" Commande reçue : {commande}")
+            print(f"Commande reçue : {commande}")
 
             if "décolle" in commande:
                 print("Décollage...")
@@ -35,30 +36,47 @@ async def main():
                 await drone.action.takeoff()
 
             elif "atterri" in commande or "pose toi" in commande:
-                print(" Atterrissage...")
+                print("Atterrissage...")
                 await drone.action.land()
 
             elif "monte" in commande:
-                print(" Montée...")
+                print("Montée...")
                 await drone.action.set_takeoff_altitude(5)
-            elif "avance" in commande:
-                await drone.offboard.set_velocity_ned(VelocityNedYaw(1.0, 0.0, 0.0, 0.0))
-                await asyncio.sleep(0.9)
 
             elif "descend" in commande:
-                print(" Descente...")
+                print("Descente...")
                 await drone.action.set_takeoff_altitude(0)
 
             elif "désarme" in commande or "coupe" in commande:
-                print(" Désarmement...")
+                print("Désarmement...")
                 await drone.action.disarm()
 
+            # --- NOUVELLE COMMANDE : AVANCER D'1 MÈTRE ---
+            elif "avance" in commande:
+                print("Avance d'un mètre...")
+
+                # Définition d’un setpoint initial obligatoire
+                try:
+                    await drone.offboard.set_velocity_ned(VelocityNedYaw(0.0, 0.0, 0.0, 0.0))
+                    await drone.offboard.start()
+                except OffboardError as e:
+                    print(f"Erreur Offboard : {e._result.result}")
+                    continue
+
+                # Avancer : X positif → 1 m/s pendant 1 seconde
+                await drone.offboard.set_velocity_ned(VelocityNedYaw(1.0, 0.0, 0.0, 0.0))
+                await asyncio.sleep(1)
+
+                # Stop net
+                await drone.offboard.set_velocity_ned(VelocityNedYaw(0.0, 0.0, 0.0, 0.0))
+                await drone.offboard.stop()
+
             elif "stop" in commande or "quitte" in commande:
-                print(" Arrêt du contrôle MAVSDK")
+                print("Arrêt du contrôle MAVSDK")
                 break
 
             else:
-                print(" Commande non reconnue")
+                print("Commande non reconnue")
 
         except BlockingIOError:
             await asyncio.sleep(0.1)
