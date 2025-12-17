@@ -21,7 +21,7 @@ async def main():
     sock.bind((UDP_IP, UDP_PORT))
     sock.setblocking(False)
 
-    print("🎧 En attente de commandes vocales...")
+    print("En attente de commandes vocales...")
 
     while True:
         try:
