@@ -65,14 +65,12 @@ async def main():
 
                 # Avancer : X positif → 1 m/s pendant 1 seconde
                 await drone.offboard.set_velocity_ned(VelocityNedYaw(1.0, 0.0, 0.0, 0.0))
-                await asyncio.sleep(1)
+                
 
-                # Stop net
-                await drone.offboard.set_velocity_ned(VelocityNedYaw(0.0, 0.0, 0.0, 0.0))
-                await drone.offboard.stop()
 
             elif "stop" in commande or "quitte" in commande:
-                print("Arrêt du contrôle MAVSDK")
+                await drone.offboard.set_velocity_ned(VelocityNedYaw(0.0, 0.0, 0.0, 0.0))
+                await drone.offboard.stop()
                 break
 
             else:
