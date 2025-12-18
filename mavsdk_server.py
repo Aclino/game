@@ -72,10 +72,10 @@ async def main():
                     print(f"Erreur Offboard : {e._result.result}")
                     continue
                     await drone.offboard.set_velocity_ned(VelocityNedYaw(-1.0, 0.0, 0.0, 0.0))
-            elif "stoppe" in commande:
+            elif "stoppe" in commande or"stop" in commande:
                 await drone.offboard.set_velocity_ned(VelocityNedYaw(0.0, 0.0, 0.0, 0.0))
                 await drone.offboard.stop()
-            elif "quitte" in commande:
+            elif "quitte" in commande or "kit" in commande:
                 print ("Arret des commande")
                 break
 
