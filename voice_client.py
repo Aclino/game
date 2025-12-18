@@ -58,7 +58,7 @@ def main():
             cmd = recognizer.recognize_google(audio, language="fr-FR").lower()
             print("Reconnu:", cmd)
             sock.sendto(cmd.encode(), (wsl_ip, UDP_PORT))
-            if "stop" in cmd or "quitte" in cmd:
+            if "quitte" in cmd:
                 print("Arrêt voice_client")
                 break
         except sr.UnknownValueError:
