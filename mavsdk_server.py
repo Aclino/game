@@ -68,9 +68,11 @@ async def main():
                 
 
 
-            elif "stop" in commande or "quitte" in commande:
+            elif "stoppe" in commande:
                 await drone.offboard.set_velocity_ned(VelocityNedYaw(0.0, 0.0, 0.0, 0.0))
                 await drone.offboard.stop()
+            elif "quitte" in commande:
+                print ("Arret des commande")
                 break
 
             else:
