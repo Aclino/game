@@ -9,16 +9,19 @@ UDP_PORT = 5005
 async def main():
     print("Connexion au drone PX4...")
     drone = System()
-    await drone.connect(system_address="udp://:14540")
+    # Correction de l'adresse de connexion
+    await drone.connect(system_address="udpin://0.0.0.0:14540")
 
     print("En attente de connexion MAVSDK...")
     async for state in drone.core.connection_state():
         if state.is_connected:
-            print("Drone connecté !")
+            print("✅ Drone connecté !")
             break
 
     # UDP listener socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    # Permet de relancer le script sans attendre que le port se libère
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind((UDP_IP, UDP_PORT))
     sock.setblocking(False)
 
