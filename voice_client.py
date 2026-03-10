@@ -5,7 +5,9 @@ import speech_recognition as sr
 import time
 
 UDP_PORT = 5005
-
+# Remplace par l'IP que tu as trouvée avec 'hostname -I'
+UDP_IP = "172.20.145.12" 
+UDP_PORT = 5005
 def get_wsl_ip():
     try:
         # ask WSL for its IP(s)
