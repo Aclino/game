@@ -1,72 +1,168 @@
-# voice_client.py (Windows) — auto-detect WSL IP and test UDP
+"""
+voice_client.py (Windows) — Push-to-talk vers drone IA via UDP/WSL
+
+Maintenir ESPACE enfoncé pour parler, relâcher pour envoyer.
+"""
+
 import socket
 import subprocess
-import speech_recognition as sr
+import threading
+import sys
 import time
+import speech_recognition as sr
 
-UDP_PORT = 5005
-# Remplace par l'IP que tu as trouvée avec 'hostname -I'
-UDP_IP = "172.20.145.12" 
-UDP_PORT = 5005
+# ─── Config ───────────────────────────────────────────────────────────────────
+
+UDP_PORT    = 5005
+LANGUAGE    = "fr-FR"       # langue de reconnaissance
+HOLD_KEY    = "space"       # touche push-to-talk (espace)
+ENERGY_THRESHOLD = 300      # sensibilité micro (baisser si micro faible)
+
+# ─── Détection IP WSL ─────────────────────────────────────────────────────────
+
 def get_wsl_ip():
     try:
-        # ask WSL for its IP(s)
-        out = subprocess.check_output(["wsl", "hostname", "-I"], universal_newlines=True).strip()
-        if not out:
-            return None
-        # take first IP token
-        ip = out.split()[0]
-        return ip
+        out = subprocess.check_output(
+            ["wsl", "hostname", "-I"], universal_newlines=True
+        ).strip()
+        return out.split()[0] if out else None
     except Exception as e:
-        print("Erreur get_wsl_ip:", e)
+        print(f"Erreur get_wsl_ip: {e}")
         return None
 
-def udp_test_send(ip, msg="__udp_test__"):
+# ─── Envoi UDP ────────────────────────────────────────────────────────────────
+
+def udp_send(sock, ip, message):
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(2.0)
-        sock.sendto(msg.encode(), (ip, UDP_PORT))
-        sock.close()
-        return True
+        sock.sendto(message.encode(), (ip, UDP_PORT))
+        print(f"  📤 Envoyé : '{message}'")
     except Exception as e:
-        print("UDP send error:", e)
-        return False
+        print(f"  ❌ Erreur UDP : {e}")
+
+# ─── Push-to-talk avec pynput ─────────────────────────────────────────────────
+
+try:
+    from pynput import keyboard
+    PYNPUT_OK = True
+except ImportError:
+    PYNPUT_OK = False
+
+def push_to_talk(sock, wsl_ip):
+    """Mode push-to-talk : maintenir ESPACE pour enregistrer."""
+    recognizer = sr.Recognizer()
+    recognizer.energy_threshold = ENERGY_THRESHOLD
+    recognizer.dynamic_energy_threshold = True
+
+    print("\n🎙️  Mode Push-to-Talk")
+    print(f"   Maintenir [ESPACE] pour parler, relâcher pour envoyer")
+    print(f"   Appuyer sur [Q] pour quitter\n")
+
+    is_recording   = False
+    stop_listening = None
+    audio_buffer   = []
+
+    def on_press(key):
+        nonlocal is_recording, stop_listening
+        try:
+            if key == keyboard.Key.space and not is_recording:
+                is_recording = True
+                audio_buffer.clear()
+                print("🔴 Enregistrement... (relâche pour envoyer)")
+                # Démarrer écoute en arrière-plan
+                with sr.Microphone() as source:
+                    recognizer.adjust_for_ambient_noise(source, duration=0.3)
+                    audio = recognizer.listen(source, phrase_time_limit=10)
+                    audio_buffer.append(audio)
+
+            elif hasattr(key, 'char') and key.char == 'q':
+                print("\n👋 Arrêt du client vocal.")
+                return False  # stop listener
+
+        except Exception as e:
+            print(f"  Erreur on_press : {e}")
+
+    def on_release(key):
+        nonlocal is_recording
+        if key == keyboard.Key.space and is_recording:
+            is_recording = False
+            print("⏹️  Traitement...")
+            if audio_buffer:
+                try:
+                    cmd = recognizer.recognize_google(
+                        audio_buffer[0], language=LANGUAGE
+                    ).lower()
+                    print(f"✅ Reconnu : '{cmd}'")
+                    udp_send(sock, wsl_ip, cmd)
+                    if "quitte" in cmd or "quit" in cmd:
+                        return False
+                except sr.UnknownValueError:
+                    print("❓ Non compris — réessaie")
+                except sr.RequestError as e:
+                    print(f"❌ Erreur Google SR : {e}")
+                    print("   (vérifie ta connexion internet)")
+
+    # Lancer le listener clavier
+    with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
+        listener.join()
+
+def fallback_input_mode(sock, wsl_ip):
+    """Mode texte si pynput non disponible."""
+    print("\n⌨️  Mode texte (pynput non installé)")
+    print("   Tape ta commande et appuie sur Entrée")
+    print("   'quitte' pour arrêter\n")
+    while True:
+        try:
+            cmd = input("Commande > ").strip().lower()
+            if not cmd:
+                continue
+            udp_send(sock, wsl_ip, cmd)
+            if "quitte" in cmd:
+                break
+        except (KeyboardInterrupt, EOFError):
+            break
+
+# ─── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
+    print("╔══════════════════════════════════════════╗")
+    print("║   🚁 Client Vocal Drone (Push-to-Talk)   ║")
+    print("╚══════════════════════════════════════════╝\n")
+
+    # Détecter IP WSL
     wsl_ip = get_wsl_ip()
-    print("WSL IP détectée :", wsl_ip)
-    if not wsl_ip:
-        print("Impossible de détecter l'IP WSL. Assure-toi que 'wsl hostname -I' fonctionne.")
+    if wsl_ip:
+        print(f"✅ IP WSL détectée : {wsl_ip}")
+    else:
+        wsl_ip = input("IP WSL non détectée. Entre l'IP manuellement : ").strip()
+
+    # Test connexion UDP
+    print(f"📡 Test connexion vers {wsl_ip}:{UDP_PORT}...")
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.sendto(b"__ping__", (wsl_ip, UDP_PORT))
+        print("✅ UDP OK\n")
+    except Exception as e:
+        print(f"❌ UDP échoué : {e}")
+        print("   Vérifie le pare-feu Windows et que mavsdk_server.py tourne dans WSL")
         return
 
-    print("Envoi d'un message test UDP vers", f"{wsl_ip}:{UDP_PORT}")
-    ok = udp_test_send(wsl_ip)
-    print("Envoi UDP OK :", ok)
-    if not ok:
-        print("Vérifie le pare-feu Windows et que WSL écoute le port.")
+    # Vérifier pynput
+    if not PYNPUT_OK:
+        print("⚠️  pynput non installé — mode texte activé")
+        print("   Pour le mode vocal : pip install pynput\n")
+        fallback_input_mode(sock, wsl_ip)
+        return
 
-    # if you want to continue with speech recognition:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    recognizer = sr.Recognizer()
-    mic = sr.Microphone()
+    # Vérifier speech_recognition
+    try:
+        import speech_recognition as sr
+    except ImportError:
+        print("❌ speech_recognition non installé")
+        print("   pip install SpeechRecognition pyaudio")
+        return
 
-    print("Parle une commande (décolle, atterris, stop...)")
-    while True:
-        with mic as source:
-            recognizer.adjust_for_ambient_noise(source)
-            print("Parle...")
-            audio = recognizer.listen(source)
-        try:
-            cmd = recognizer.recognize_google(audio, language="fr-FR").lower()
-            print("Reconnu:", cmd)
-            sock.sendto(cmd.encode(), (wsl_ip, UDP_PORT))
-            if "quitte" in cmd:
-                print("Arrêt voice_client")
-                break
-        except sr.UnknownValueError:
-            print("Non compris")
-        except Exception as e:
-            print("Erreur SR/UDP:", e)
+    push_to_talk(sock, wsl_ip)
+    sock.close()
 
 if __name__ == "__main__":
     main()
