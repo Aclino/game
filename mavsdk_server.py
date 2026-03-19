@@ -1,89 +1,133 @@
-import asyncio 
+import asyncio
 import socket
-from mavsdk import System
-from mavsdk.offboard import OffboardError, VelocityNedYaw
+import subprocess
+import threading
 
-UDP_IP = "0.0.0.0"
+UDP_IP   = "0.0.0.0"
 UDP_PORT = 5005
 
+ROS2_SETUP   = "/opt/ros/jazzy/setup.bash"
+ROS2_WS      = "/home/nico/LLM-controlled-drone"
+
+def send_to_ai(commande_naturelle: str):
+    """Publie une commande en langage naturel sur /user_command pour le brain_node."""
+    ros_cmd = (
+        f"source {ROS2_SETUP} && "
+        f"source {ROS2_WS}/install/setup.bash && "
+        f"ros2 topic pub /user_command std_msgs/msg/String "
+        f"\"data: '{commande_naturelle}'\" --once"
+    )
+    print(f"  → IA : '{commande_naturelle}'")
+    subprocess.Popen(
+        ros_cmd,
+        shell=True,
+        executable="/bin/bash",
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+def traduire_commande(commande: str) -> str | None:
+    """Traduit une commande vocale courte en instruction langage naturel pour l'IA."""
+    c = commande.lower().strip()
+
+    if "décolle" in c or "decolle" in c:
+        return "Take off to 10 metres"
+    elif "atterri" in c or "pose toi" in c or "atterris" in c:
+        return "Land"
+    elif "retour" in c or "rentre" in c or "rtl" in c:
+        return "Return to launch"
+    elif "monte" in c:
+        # Essayer d'extraire un nombre : "monte 20" → 20m
+        mots = c.split()
+        for m in mots:
+            if m.isdigit():
+                return f"Fly to altitude {m} metres"
+        return "Fly to altitude 20 metres"
+    elif "descend" in c:
+        mots = c.split()
+        for m in mots:
+            if m.isdigit():
+                return f"Fly to altitude {m} metres"
+        return "Fly to altitude 5 metres"
+    elif "avance" in c:
+        mots = c.split()
+        for m in mots:
+            if m.isdigit():
+                return f"Go {m} metres north"
+        return "Go 20 metres north"
+    elif "recule" in c:
+        mots = c.split()
+        for m in mots:
+            if m.isdigit():
+                return f"Go {m} metres south"
+        return "Go 20 metres south"
+    elif "gauche" in c:
+        return "Go 20 metres west"
+    elif "droite" in c:
+        return "Go 20 metres east"
+    elif "tourne" in c or "pivote" in c:
+        mots = c.split()
+        for m in mots:
+            if m.isdigit():
+                return f"Set heading to {m} degrees"
+        return "Rotate 90 degrees"
+    elif "orbite" in c or "tourne autour" in c or "cercle" in c:
+        return "Orbit around current position with radius 20 metres"
+    elif "cherche" in c or "trouve" in c or "scan" in c:
+        # Extraire l'objet : "cherche une personne" → "person"
+        for mot, yolo in [("personne", "person"), ("voiture", "car"),
+                           ("camion", "truck"), ("vélo", "bicycle"),
+                           ("chien", "dog"), ("chat", "cat")]:
+            if mot in c:
+                return f"Search for a {yolo}"
+        return "Search and scan the area"
+    elif "stop" in c or "stoppe" in c or "arrête" in c or "freeze" in c:
+        return "Hold position"
+    elif "désarme" in c or "coupe" in c:
+        return "Disarm"
+    elif c.startswith("ia:") or c.startswith("ai:"):
+        # Mode direct : "ia: survole le lac à 50 mètres"
+        return c.split(":", 1)[1].strip()
+    else:
+        # Passer la commande directement à l'IA sans traduction
+        return commande.strip()
+
 async def main():
-    print("Connexion au drone PX4...")
-    drone = System()
-    # Correction de l'adresse de connexion
-    await drone.connect(system_address="udpin://0.0.0.0:14540")
-
-    print("En attente de connexion MAVSDK...")
-    async for state in drone.core.connection_state():
-        if state.is_connected:
-            print("✅ Drone connecté !")
-            break
-
-    # UDP listener socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    # Permet de relancer le script sans attendre que le port se libère
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind((UDP_IP, UDP_PORT))
     sock.setblocking(False)
 
-    print("En attente de commandes vocales...")
+    print("╔══════════════════════════════════════╗")
+    print("║   🚁 Serveur commandes drone (IA)    ║")
+    print(f"║   UDP {UDP_IP}:{UDP_PORT}                   ║")
+    print("║   Commandes → brain_node via ROS2    ║")
+    print("╚══════════════════════════════════════╝")
+    print()
+    print("Commandes disponibles :")
+    print("  décolle / atterri / stop / retour")
+    print("  monte [m] / descend [m]")
+    print("  avance [m] / recule [m] / gauche / droite")
+    print("  orbite / cherche [objet] / scan")
+    print("  ia: <texte libre>  → envoi direct à l'IA")
+    print()
+    print("En attente de commandes UDP...")
 
     while True:
         try:
-            data, _ = sock.recvfrom(1024)
-            commande = data.decode().lower()
-            print(f"Commande reçue : {commande}")
+            data, addr = sock.recvfrom(1024)
+            commande_brute = data.decode().strip()
+            print(f"\n📥 Reçu de {addr[0]} : '{commande_brute}'")
 
-            if "décolle" in commande:
-                print("Décollage...")
-                await drone.action.arm()
-                await drone.action.takeoff()
-
-            elif "atterri" in commande or "pose toi" in commande:
-                print("Atterrissage")
-                await drone.action.land()
-
-            elif "monte" in commande:
-                print("Montée")
-                await drone.action.set_takeoff_altitude(5)
-
-            elif "descend" in commande:
-                print("Descente")
-                await drone.action.set_takeoff_altitude(0)
-
-            elif "désarme" in commande or "coupe" in commande:
-                print("Désarmement")
-                await drone.action.disarm()
-
-            elif "avance" in commande:
-                print("Avance ")
-
-                # Définition d’un setpoint initial obligatoire
-                try:
-                    await drone.offboard.set_velocity_ned(VelocityNedYaw(0.0, 0.0, 0.0, 0.0))
-                    await drone.offboard.start()
-                except OffboardError as e:
-                    print(f"Erreur Offboard : {e._result.result}")
-                    continue
-
-                # Avancer : X positif → 1 m/s pendant 1 seconde
-                await drone.offboard.set_velocity_ned(VelocityNedYaw(1.0, 0.0, 0.0, 0.0))
-            elif "recule" in commande:
-                try:
-                    await drone.offboard.set_velocity_ned(VelocityNedYaw(0.0, 0.0, 0.0, 0.0))
-                    await drone.offboard.start()
-                except OffboardError as e:
-                    print(f"Erreur Offboard : {e._result.result}")
-                    continue
-                    await drone.offboard.set_velocity_ned(VelocityNedYaw(-1.0, 0.0, 0.0, 0.0))
-            elif "stoppe" in commande or"stop" in commande:
-                await drone.offboard.set_velocity_ned(VelocityNedYaw(0.0, 0.0, 0.0, 0.0))
-                await drone.offboard.stop()
-            elif "quitte" in commande or "kit" in commande:
-                print ("Arret des commande")
+            if "quitte" in commande_brute.lower() or "quit" in commande_brute.lower():
+                print("Arrêt du serveur.")
                 break
 
+            instruction = traduire_commande(commande_brute)
+            if instruction:
+                send_to_ai(instruction)
             else:
-                print("Commande non reconnue")
+                print("  ⚠️  Commande non reconnue")
 
         except BlockingIOError:
             await asyncio.sleep(0.1)
